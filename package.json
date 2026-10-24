@@ -1,0 +1,54 @@
+{
+  "name": "homebridge-appletv-pyatv",
+  "version": "1.0.0",
+  "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to external processors like Trinnov Altitude.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jeremylatrasse/homebridge-appletv-pyatv.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jeremylatrasse/homebridge-appletv-pyatv/issues"
+  },
+  "homepage": "https://github.com/jeremylatrasse/homebridge-appletv-pyatv#readme",
+  "keywords": [
+    "homebridge-plugin",
+    "apple-tv",
+    "appletv",
+    "pyatv",
+    "trinnov",
+    "home-theater",
+    "siri-remote",
+    "volume",
+    "power"
+  ],
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "scripts",
+    "config.schema.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "npm run build && node test-pyatv.mjs",
+    "bump": "npm version patch --no-git-tag-version",
+    "release": "npm run bump && npm run build && node test-pyatv.mjs",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "homebridge": "^1.8.0",
+    "typescript": "^5.4.0"
+  }
+}

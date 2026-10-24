@@ -1,0 +1,100 @@
+{
+  "pluginAlias": "AppleTvPyatv",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Apple TV (pyatv) Power & Siri Remote Bridge for HomeKit and Trinnov Altitude",
+  "footerDisplay": "Pair once on your Homebridge host via: atvremote -s <APPLE_TV_IP> --protocol companion pair",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Platform Name",
+        "type": "string",
+        "default": "Apple TV pyatv"
+      },
+      "devices": {
+        "title": "Apple TV Devices",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "title": "Apple TV",
+          "required": ["host"],
+          "properties": {
+            "name": {
+              "title": "Apple TV Name",
+              "type": "string",
+              "default": "Theater Apple TV",
+              "description": "Name of the Apple TV Power Switch exposed in Apple Home (for grouping/automating your projector & sound power)."
+            },
+            "host": {
+              "title": "Apple TV IP Address",
+              "type": "string",
+              "format": "hostname",
+              "placeholder": "172.16.1.50"
+            },
+            "pythonPath": {
+              "title": "Python 3 Path",
+              "type": "string",
+              "default": "python3",
+              "description": "Path to python3 executable where pyatv is installed (e.g. 'python3' or '/opt/homebrew/bin/python3')."
+            },
+            "companionCredentials": {
+              "title": "Companion Credentials (from atvremote pair)",
+              "type": "string",
+              "description": "Obtain by running: atvremote -s <APPLE_TV_IP> --protocol companion pair"
+            },
+            "airplayCredentials": {
+              "title": "AirPlay Credentials (optional)",
+              "type": "string",
+              "description": "Obtain by running: atvremote -s <APPLE_TV_IP> --protocol airplay pair"
+            },
+            "exposePlaybackSensor": {
+              "title": "Expose Playback Motion Sensor (for Movie Lighting Scenes)",
+              "type": "boolean",
+              "default": true,
+              "description": "Exposes a Motion Sensor that activates whenever the Apple TV is playing media."
+            },
+            "trinnovHost": {
+              "title": "Trinnov Altitude IP Address (Direct Volume/Power Target)",
+              "type": "string",
+              "placeholder": "172.16.1.66",
+              "description": "Optional: Directly forwards Siri Remote Volume Up/Down and source-aware Power On/Off to your Trinnov Altitude over TCP."
+            },
+            "trinnovPort": {
+              "title": "Trinnov TCP Port",
+              "type": "integer",
+              "default": 44100
+            },
+            "trinnovMac": {
+              "title": "Trinnov MAC Address (Wake-on-LAN)",
+              "type": "string",
+              "placeholder": "00:1E:06:12:34:56"
+            },
+            "trinnovStepDb": {
+              "title": "Volume Step per Button Press (dB)",
+              "type": "number",
+              "default": 1.0,
+              "description": "How many dB to step the Trinnov volume on each Siri Remote Volume Up/Down press."
+            },
+            "trinnovAppleTvProfileId": {
+              "title": "Trinnov Profile ID for Apple TV",
+              "type": "integer",
+              "placeholder": 1,
+              "description": "When Apple TV powers on, switches Trinnov to this Profile ID. When Apple TV sleeps, ONLY powers off the Trinnov if it is still on this Profile ID."
+            },
+            "trinnovSyncPowerOn": {
+              "title": "Wake Trinnov when Apple TV Wakes",
+              "type": "boolean",
+              "default": true
+            },
+            "trinnovSyncPowerOff": {
+              "title": "Power Off Trinnov when Apple TV Sleeps (Source-Aware)",
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      }
+    }
+  }
+}
