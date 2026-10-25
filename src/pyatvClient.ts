@@ -28,10 +28,14 @@ export interface ResolvedPythonRuntime {
 
 const DEFAULT_ENV_PATH = [
   '/opt/pyatv/bin',
+  '/opt/pipx/bin',
   '/opt/homebrew/bin',
   '/opt/homebrew/sbin',
   '/usr/local/bin',
   '/usr/local/sbin',
+  '/home/linuxbrew/.linuxbrew/bin',
+  '/usr/bin',
+  '/bin',
   join(homedir(), '.local', 'bin'),
   process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
 ].join(':');
@@ -60,10 +64,10 @@ export function normalizePythonPathInput(rawInput?: string): string | undefined 
     cleaned = join(homedir(), cleaned.slice(2));
   }
 
-  // Expand shell substitutions such as `$(brew --prefix python@3.12)/bin/python3.12`
+  // Expand shell substitutions such as `$(brew --prefix python@3.12)/bin/python3.12` using POSIX /bin/sh
   if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
     try {
-      const expanded = execFileSync('/bin/zsh', ['-c', `echo ${cleaned}`], {
+      const expanded = execFileSync('/bin/sh', ['-c', `echo ${cleaned}`], {
         env: { ...process.env, PATH: DEFAULT_ENV_PATH },
         encoding: 'utf8',
         timeout: 3000,
@@ -89,6 +93,12 @@ function safeReaddir(dirPath: string): string[] {
 
 function listUserHomeDirs(): string[] {
   const homes = new Set<string>([homedir()]);
+  // Include macOS (/Users/*, /var/root) and Linux/Docker (/home/*, /root, /var/lib/homebridge)
+  for (const staticHome of ['/root', '/var/root', '/var/lib/homebridge']) {
+    if (existsSync(staticHome)) {
+      homes.add(staticHome);
+    }
+  }
   for (const base of ['/Users', '/home']) {
     for (const entry of safeReaddir(base)) {
       if (!entry.startsWith('.') && entry !== 'Shared') {
@@ -146,9 +156,10 @@ function findUserPyAtvSitePackages(userHomes: string[]): string[] {
   return sitePackages;
 }
 
-function findHomebrewPythons(): string[] {
+function findSystemAndBrewPythons(): string[] {
   const results: string[] = [];
-  for (const prefix of ['/opt/homebrew', '/usr/local']) {
+  // macOS Homebrew (/opt/homebrew, /usr/local) and Linuxbrew (/home/linuxbrew/.linuxbrew)
+  for (const prefix of ['/opt/homebrew', '/usr/local', '/home/linuxbrew/.linuxbrew']) {
     const optDir = join(prefix, 'opt');
     const pyFormulae = safeReaddir(optDir)
       .filter((name) => /^python@\d+\.\d+$/.test(name))
@@ -173,6 +184,15 @@ function findHomebrewPythons(): string[] {
       }
     }
   }
+
+  // Standard Linux / POSIX /usr/bin Python versions
+  for (const binName of ['python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3']) {
+    const fullPath = join('/usr/bin', binName);
+    if (existsSync(fullPath)) {
+      results.push(fullPath);
+    }
+  }
+
   return results;
 }
 
@@ -217,9 +237,8 @@ export class PyAtvClient extends EventEmitter {
   }
 
   /**
-   * Automatically discovers the Python interpreter on the system that has `pyatv`
-   * installed (across user/system pipx venvs, Homebrew Python versions, atvremote
-   * shebangs, and user site-packages).
+   * Automatically discovers the Python interpreter on the system (macOS, Linux,
+   * Raspberry Pi, or Docker) that has `pyatv` installed.
    */
   public resolvePythonRuntime(): ResolvedPythonRuntime {
     if (this.cachedRuntime) {
@@ -232,13 +251,15 @@ export class PyAtvClient extends EventEmitter {
     // 1. Collect `atvremote` binary paths to inspect their `#!` Python shebangs
     const atvremotePaths = new Set<string>([
       '/opt/pyatv/bin/atvremote',
+      '/opt/pipx/bin/atvremote',
       '/opt/homebrew/bin/atvremote',
       '/usr/local/bin/atvremote',
+      '/home/linuxbrew/.linuxbrew/bin/atvremote',
       '/usr/bin/atvremote',
     ]);
 
     try {
-      const whichOut = execFileSync('/usr/bin/which', ['atvremote'], {
+      const whichOut = execFileSync('/bin/sh', ['-c', 'command -v atvremote'], {
         env: { ...process.env, PATH: DEFAULT_ENV_PATH },
         encoding: 'utf8',
         timeout: 2000,
@@ -272,6 +293,8 @@ export class PyAtvClient extends EventEmitter {
       '/opt/pyatv/bin/python',
       '/opt/pipx/venvs/pyatv/bin/python',
       '/usr/local/pipx/venvs/pyatv/bin/python',
+      '/var/lib/homebridge/pyatv/bin/python3',
+      '/var/lib/homebridge/pyatv/bin/python',
       '/opt/homebrew/opt/pyatv/libexec/bin/python3',
       '/opt/homebrew/opt/pyatv/libexec/bin/python',
       '/usr/local/opt/pyatv/libexec/bin/python3',
@@ -283,12 +306,13 @@ export class PyAtvClient extends EventEmitter {
         join(home, '.local', 'pipx', 'venvs', 'pyatv', 'bin', 'python'),
         join(home, '.local', 'share', 'pipx', 'venvs', 'pyatv', 'bin', 'python'),
         join(home, '.pyatv', 'bin', 'python'),
+        join(home, 'pyatv-venv', 'bin', 'python'),
       );
     }
 
-    // 3. Collect Homebrew & system Python interpreters
+    // 3. Collect Homebrew, Linuxbrew, & system Python interpreters
     const systemPythons = [
-      ...findHomebrewPythons(),
+      ...findSystemAndBrewPythons(),
       ...(normalizedUserPath === 'python3' || !normalizedUserPath ? ['python3'] : []),
     ];
 
@@ -329,7 +353,7 @@ export class PyAtvClient extends EventEmitter {
       }
     }
 
-    // Also check if `pyatv` is inside a pipx venv site-packages that needs a Homebrew Python binary
+    // Also check if `pyatv` is inside a pipx venv site-packages that needs a system/Homebrew Python binary
     for (const venvPy of venvPythons) {
       const venvLibDir = join(dirname(dirname(venvPy)), 'lib');
       for (const pyVerDir of safeReaddir(venvLibDir)) {

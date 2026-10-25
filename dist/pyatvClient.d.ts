@@ -34,9 +34,8 @@ export declare class PyAtvClient extends EventEmitter {
     readonly state: PyAtvState;
     constructor(config: PyAtvClientConfig, log: Logger);
     /**
-     * Automatically discovers the Python interpreter on the system that has `pyatv`
-     * installed (across user/system pipx venvs, Homebrew Python versions, atvremote
-     * shebangs, and user site-packages).
+     * Automatically discovers the Python interpreter on the system (macOS, Linux,
+     * Raspberry Pi, or Docker) that has `pyatv` installed.
      */
     resolvePythonRuntime(): ResolvedPythonRuntime;
     start(): void;
