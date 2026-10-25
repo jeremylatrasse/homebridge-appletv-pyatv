@@ -5,7 +5,7 @@ const node_fs_1 = require("node:fs");
 const node_path_1 = require("node:path");
 exports.PLATFORM_NAME = 'AppleTvPyatv';
 exports.PLUGIN_NAME = 'homebridge-appletv-pyatv';
-const FALLBACK_VERSION = '1.0.5';
+const FALLBACK_VERSION = '1.0.6';
 function loadPluginVersion() {
     try {
         const pkgPath = (0, node_path_1.join)(__dirname, '..', 'package.json');

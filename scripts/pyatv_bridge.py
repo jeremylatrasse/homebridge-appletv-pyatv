@@ -73,6 +73,9 @@ class BridgeListener(PowerListener, AudioListener, PushListener):
         elif delta < -0.01:
             emit({"event": "volume_step", "direction": "down", "delta": delta})
 
+    def volume_device_update(self, output_device, old_level: float, new_level: float) -> None:
+        self.volume_update(old_level, new_level)
+
     def outputdevices_update(self, old_devices, new_devices) -> None:
         pass
 
@@ -91,6 +94,12 @@ class BridgeListener(PowerListener, AudioListener, PushListener):
 
     def playstatus_error(self, updater, exception: Exception) -> None:
         emit({"event": "error", "message": f"Playstatus error: {exception}"})
+
+
+# Ensure forward compatibility if newer pyatv releases add additional abstract listener methods
+for _missing_method in list(getattr(BridgeListener, "__abstractmethods__", ())):
+    setattr(BridgeListener, _missing_method, lambda self, *args, **kwargs: None)
+BridgeListener.__abstractmethods__ = frozenset()
 
 
 async def handle_stdin(atv, loop: asyncio.AbstractEventLoop):
