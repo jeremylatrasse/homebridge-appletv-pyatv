@@ -1,6 +1,6 @@
 {
   "name": "homebridge-appletv-pyatv",
-  "version": "1.0.4",
+  "version": "1.0.0",
   "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to a target device.",
   "license": "Apache-2.0",
   "repository": {

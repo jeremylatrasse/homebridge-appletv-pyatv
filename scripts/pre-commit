@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Git pre-commit hook for homebridge-appletv-pyatv
-# Automatically increments the package patch version, builds the TypeScript
-# sources into dist/, and stages dist/ + package.json for the commit.
+# Increments the package patch version once per push (comparing against the
+# remote tracking branch, e.g. origin/main), builds the TypeScript sources
+# into dist/, and stages dist/ + package.json for the commit.
 
 set -e
 
@@ -22,10 +23,20 @@ wait_for_git_lock() {
   done
 }
 
-# 1. Check whether version in package.json was already incremented relative to HEAD
-HEAD_VER=""
-if git rev-parse --verify HEAD >/dev/null 2>&1; then
-  HEAD_VER="$(git show HEAD:package.json 2>/dev/null | node -e '
+# 1. Compare current package.json version against the remote tracking branch (origin/main)
+#    so the version increments once per push rather than on every intermediate local commit.
+REMOTE_REF="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "origin/main")"
+BASE_VER=""
+if git rev-parse --verify "$REMOTE_REF" >/dev/null 2>&1; then
+  BASE_VER="$(git show "${REMOTE_REF}:package.json" 2>/dev/null | node -e '
+    let data = "";
+    process.stdin.on("data", chunk => data += chunk);
+    process.stdin.on("end", () => {
+      try { console.log(JSON.parse(data).version || ""); } catch { console.log(""); }
+    });
+  ')"
+elif git rev-parse --verify HEAD >/dev/null 2>&1; then
+  BASE_VER="$(git show HEAD:package.json 2>/dev/null | node -e '
     let data = "";
     process.stdin.on("data", chunk => data += chunk);
     process.stdin.on("end", () => {
@@ -36,12 +47,14 @@ fi
 
 CURRENT_VER="$(node -p "require('./package.json').version")"
 
-if [ -n "$HEAD_VER" ] && [ "$HEAD_VER" = "$CURRENT_VER" ]; then
+if [ "${SKIP_VERSION_BUMP:-0}" = "1" ]; then
+  echo "[pre-commit] Keeping version: ${CURRENT_VER}"
+elif [ -n "$BASE_VER" ] && [ "$BASE_VER" = "$CURRENT_VER" ]; then
   NEW_VER="$(npm version patch --no-git-tag-version)"
   CURRENT_VER="${NEW_VER#v}"
-  echo "[pre-commit] Incremented version: ${HEAD_VER} -> ${CURRENT_VER}"
+  echo "[pre-commit] Incremented version for next push: ${BASE_VER} -> ${CURRENT_VER}"
 else
-  echo "[pre-commit] Version already updated: ${CURRENT_VER}"
+  echo "[pre-commit] Version already incremented since ${REMOTE_REF} (${BASE_VER} -> ${CURRENT_VER})"
 fi
 
 # 2. Sync fallback version constant in src/settings.ts
