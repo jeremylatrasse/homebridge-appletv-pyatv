@@ -27,10 +27,10 @@ try:
     import pyatv
     from pyatv.const import Protocol, PowerState, DeviceState
     from pyatv.interface import PowerListener, AudioListener, PushListener
-except ImportError:
+except ImportError as exc:
     print(json.dumps({
         "event": "error",
-        "message": "pyatv is not installed. Run: pip3 install pyatv"
+        "message": f"pyatv is not installed in {sys.executable} ({exc}). Run: {sys.executable} -m pip install pyatv"
     }), flush=True)
     sys.exit(1)
 
@@ -39,62 +39,61 @@ def emit(payload: dict) -> None:
     print(json.dumps(payload), flush=True)
 
 
-class BridgePowerListener(PowerListener):
+class BridgeListener(PowerListener, AudioListener, PushListener):
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self.loop = loop
+        self.current_volume = None
+        self.last_playing = None
+        self.last_power = None
+
     def powerstate_update(self, old_state: PowerState, new_state: PowerState) -> None:
         is_on = (new_state == PowerState.On)
-        emit({
-            "event": "power",
-            "power": is_on,
-            "raw": str(new_state),
-        })
+        if self.last_power != is_on:
+            self.last_power = is_on
+            emit({
+                "event": "power",
+                "power": is_on,
+                "raw": new_state.name,
+            })
 
-
-class BridgeAudioListener(AudioListener):
-    def __init__(self) -> None:
-        self.last_volume = None
-
-    def volume_update(self, old_volume: float, new_volume: float) -> None:
+    def volume_update(self, old_level: float, new_level: float) -> None:
+        prev = self.current_volume if self.current_volume is not None else old_level
+        self.current_volume = new_level
         delta = 0.0
-        if old_volume is not None and new_volume is not None:
-            delta = round(float(new_volume) - float(old_volume), 2)
+        if prev is not None and new_level is not None:
+            delta = round(new_level - prev, 2)
         emit({
             "event": "volume",
-            "old": old_volume,
-            "new": new_volume,
+            "old": prev,
+            "new": new_level,
             "delta": delta,
         })
-        if delta > 0:
+        if delta > 0.01:
             emit({"event": "volume_step", "direction": "up", "delta": delta})
-        elif delta < 0:
+        elif delta < -0.01:
             emit({"event": "volume_step", "direction": "down", "delta": delta})
 
     def outputdevices_update(self, old_devices, new_devices) -> None:
-        emit({
-            "event": "output_devices",
-            "count": len(new_devices) if new_devices else 0,
-        })
+        pass
 
-
-class BridgePushListener(PushListener):
     def playstatus_update(self, updater, playstatus) -> None:
-        state_str = str(playstatus.device_state)
+        state_name = playstatus.device_state.name if playstatus.device_state else "Idle"
         is_playing = (playstatus.device_state == DeviceState.Playing)
-        emit({
-            "event": "playback",
-            "playing": is_playing,
-            "state": state_str,
-            "title": getattr(playstatus, "title", None),
-            "app": getattr(playstatus, "app", None),
-        })
+        if self.last_playing != is_playing:
+            self.last_playing = is_playing
+            emit({
+                "event": "playback",
+                "playing": is_playing,
+                "state": state_name,
+                "title": getattr(playstatus, "title", None),
+                "app": None,
+            })
 
     def playstatus_error(self, updater, exception: Exception) -> None:
-        emit({
-            "event": "error",
-            "message": f"Playstatus error: {exception}",
-        })
+        emit({"event": "error", "message": f"Playstatus error: {exception}"})
 
 
-async def stdin_Loop(atv, loop: asyncio.AbstractEventLoop) -> None:
+async def handle_stdin(atv, loop: asyncio.AbstractEventLoop):
     reader = asyncio.StreamReader()
     protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: protocol, sys.stdin)
@@ -105,7 +104,11 @@ async def stdin_Loop(atv, loop: asyncio.AbstractEventLoop) -> None:
             break
         try:
             cmd = json.loads(line.decode("utf-8").strip())
-            action = cmd.get("command")
+        except Exception:
+            continue
+
+        action = cmd.get("command")
+        try:
             if action == "power_on":
                 await atv.power.turn_on()
             elif action == "power_off":
@@ -117,20 +120,26 @@ async def stdin_Loop(atv, loop: asyncio.AbstractEventLoop) -> None:
             elif action == "play_pause":
                 await atv.remote_control.play_pause()
         except Exception as exc:
-            emit({"event": "error", "message": f"Command error: {exc}"})
+            emit({"event": "error", "message": f"Command '{action}' failed: {exc}"})
 
 
-async def run_bridge(args) -> None:
-    loop = asyncio.get_event_loop()
-    emit({"event": "status", "message": f"Scanning for Apple TV at {args.host}..."})
+async def main():
+    parser = argparse.ArgumentParser(description="Homebridge pyatv bridge")
+    parser.add_argument("--host", required=True, help="Apple TV IP address")
+    parser.add_argument("--companion-credentials", default="", help="Companion protocol credentials")
+    parser.add_argument("--airplay-credentials", default="", help="AirPlay protocol credentials")
+    parser.add_argument("--mrp-credentials", default="", help="MRP protocol credentials")
+    args = parser.parse_args()
+
+    loop = asyncio.get_running_loop()
 
     atvs = await pyatv.scan(loop, hosts=[args.host], timeout=5)
     if not atvs:
         emit({"event": "error", "message": f"No Apple TV found at {args.host}"})
+        await asyncio.sleep(5)
         return
 
     conf = atvs[0]
-
     if args.companion_credentials:
         conf.set_credentials(Protocol.Companion, args.companion_credentials)
     if args.airplay_credentials:
@@ -139,53 +148,57 @@ async def run_bridge(args) -> None:
         conf.set_credentials(Protocol.MRP, args.mrp_credentials)
 
     atv = await pyatv.connect(conf, loop)
+    listener = BridgeListener(loop)
 
-    # Hold strong references so pyatv weakrefs are never garbage-collected
-    power_listener = BridgePowerListener()
-    audio_listener = BridgeAudioListener()
-    push_listener = BridgePushListener()
+    atv.power.listener = listener
+    atv.audio.listener = listener
+    atv.push_updater.listener = listener
+    atv.push_updater.start()
 
+    emit({
+        "event": "connected",
+        "name": conf.name,
+        "address": str(conf.address),
+    })
+
+    # Emit initial power state immediately
     try:
-        atv.power.listener = power_listener
-        atv.audio.listener = audio_listener
-        atv.push_updater.listener = push_listener
-        atv.push_updater.start()
-
-        initial_power = (atv.power.power_state == PowerState.On)
-        emit({
-            "event": "connected",
-            "name": conf.name,
-            "host": args.host,
-            "power": initial_power,
-            "volume": atv.audio.volume,
-        })
+        power_state = atv.power.power_state
+        is_on = (power_state == PowerState.On)
+        listener.last_power = is_on
         emit({
             "event": "power",
-            "power": initial_power,
-            "raw": str(atv.power.power_state),
+            "power": is_on,
+            "raw": power_state.name,
         })
+    except Exception as exc:
+        emit({"event": "error", "message": f"Initial power check failed: {exc}"})
 
-        await stdin_Loop(atv, loop)
+    # Emit initial volume if available
+    try:
+        vol = atv.audio.volume
+        listener.current_volume = vol
+        emit({"event": "volume", "old": vol, "new": vol, "delta": 0.0})
+    except Exception:
+        pass
+
+    stdin_task = asyncio.create_task(handle_stdin(atv, loop))
+
+    try:
+        while True:
+            await asyncio.sleep(1)
+    except asyncio.CancelledError:
+        pass
     finally:
+        stdin_task.cancel()
         atv.close()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="pyatv Homebridge bridge")
-    parser.add_argument("--host", required=True, help="Apple TV IP address")
-    parser.add_argument("--companion-credentials", default="", help="Companion protocol credentials")
-    parser.add_argument("--airplay-credentials", default="", help="AirPlay protocol credentials")
-    parser.add_argument("--mrp-credentials", default="", help="MRP protocol credentials")
-    args = parser.parse_args()
-
+if __name__ == "__main__":
     try:
-        asyncio.run(run_bridge(args))
+        asyncio.run(main())
     except KeyboardInterrupt:
         pass
     except Exception as exc:
-        emit({"event": "error", "message": str(exc)})
+        emit({"event": "error", "message": f"Fatal bridge error: {exc}"})
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
