@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export const PLATFORM_NAME = 'AppleTvPyatv';
 export const PLUGIN_NAME = 'homebridge-appletv-pyatv';
 
-const FALLBACK_VERSION = '1.0.3';
+const FALLBACK_VERSION = '1.0.4';
 
 function loadPluginVersion(): string {
   try {

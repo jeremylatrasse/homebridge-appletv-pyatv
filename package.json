@@ -1,6 +1,6 @@
 {
   "name": "homebridge-appletv-pyatv",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to a target device.",
   "license": "Apache-2.0",
   "repository": {
@@ -30,13 +30,13 @@
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "scripts",
+    "scripts/pyatv_bridge.py",
     "config.schema.json",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "prepare": "if [ -d .git ]; then cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit; fi",
+    "hooks": "if [ -d .git ]; then cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit; fi",
     "build": "rm -rf dist && tsc",
     "watch": "tsc --watch",
     "check": "tsc --noEmit",
