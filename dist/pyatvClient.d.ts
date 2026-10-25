@@ -14,6 +14,15 @@ export interface PyAtvState {
     playing: boolean;
     volume: number | null;
 }
+export interface ResolvedPythonRuntime {
+    pythonExec: string;
+    pythonPathEnv?: string;
+}
+/**
+ * Normalizes a user-supplied pythonPath string (including `--python ...` flags,
+ * `~`, or shell substitutions like `$(brew --prefix python@3.12)/bin/python3.12`).
+ */
+export declare function normalizePythonPathInput(rawInput?: string): string | undefined;
 export declare class PyAtvClient extends EventEmitter {
     readonly config: PyAtvClientConfig;
     private readonly log;
@@ -21,8 +30,15 @@ export declare class PyAtvClient extends EventEmitter {
     private reconnectTimer;
     private stopped;
     private stdoutBuffer;
+    private cachedRuntime;
     readonly state: PyAtvState;
     constructor(config: PyAtvClientConfig, log: Logger);
+    /**
+     * Automatically discovers the Python interpreter on the system that has `pyatv`
+     * installed (across user/system pipx venvs, Homebrew Python versions, atvremote
+     * shebangs, and user site-packages).
+     */
+    resolvePythonRuntime(): ResolvedPythonRuntime;
     start(): void;
     stop(): void;
     private spawnBridge;

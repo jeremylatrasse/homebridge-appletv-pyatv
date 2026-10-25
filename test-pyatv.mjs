@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { parseArgs } from 'node:util';
-import { PyAtvClient } from './dist/pyatvClient.js';
+import { PyAtvClient, normalizePythonPathInput } from './dist/pyatvClient.js';
 import { TargetForwarder } from './dist/targetForwarder.js';
 import { sanitizeHomeKitName } from './dist/platformAccessory.js';
 import { PLUGIN_VERSION } from './dist/settings.js';
@@ -51,6 +51,15 @@ const client = new PyAtvClient(
   noopLogger,
 );
 assert.equal(client.config.host, appleTvHost);
+
+assert.equal(
+  normalizePythonPathInput('pyatv --python /opt/homebrew/opt/python@3.12/bin/python3.12'),
+  '/opt/homebrew/opt/python@3.12/bin/python3.12',
+);
+
+const runtime = client.resolvePythonRuntime();
+assert.equal(typeof runtime.pythonExec, 'string');
+assert.ok(runtime.pythonExec.length > 0);
 
 const target = new TargetForwarder(
   { host: targetHost, stepDb: 1.5, appleTvProfileId: 1 },
