@@ -16,7 +16,8 @@ export interface PyAtvState {
 }
 /**
  * Resolves the configured pythonPath (expanding `~` or shell expressions like
- * `$(brew --prefix python@3.12)/bin/python3.12` if present), defaulting to `python3`.
+ * `$(brew --prefix python@3.12)/bin/python3.12` if present). If an absolute path
+ * is configured that does not exist on disk, falls back to an existing Python binary.
  */
 export declare function resolvePythonPath(rawInput?: string): string;
 export declare class PyAtvClient extends EventEmitter {

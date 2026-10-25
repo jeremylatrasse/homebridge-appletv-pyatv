@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { spawn, execFileSync, ChildProcessWithoutNullStreams } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Logger } from 'homebridge';
@@ -21,8 +22,10 @@ export interface PyAtvState {
 }
 
 const DEFAULT_ENV_PATH = [
+  '/opt/homebrew/opt/python@3.12/bin',
   '/opt/homebrew/bin',
   '/opt/homebrew/sbin',
+  '/usr/local/opt/python@3.12/bin',
   '/usr/local/bin',
   '/usr/local/sbin',
   '/usr/bin',
@@ -30,44 +33,62 @@ const DEFAULT_ENV_PATH = [
   process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
 ].join(':');
 
+const FALLBACK_PYTHON_PATHS = [
+  '/opt/homebrew/opt/python@3.12/bin/python3.12',
+  '/usr/local/opt/python@3.12/bin/python3.12',
+  '/opt/homebrew/bin/python3.12',
+  '/usr/local/bin/python3.12',
+  '/opt/homebrew/bin/python3',
+  '/usr/local/bin/python3',
+  '/usr/bin/python3',
+];
+
 /**
  * Resolves the configured pythonPath (expanding `~` or shell expressions like
- * `$(brew --prefix python@3.12)/bin/python3.12` if present), defaulting to `python3`.
+ * `$(brew --prefix python@3.12)/bin/python3.12` if present). If an absolute path
+ * is configured that does not exist on disk, falls back to an existing Python binary.
  */
 export function resolvePythonPath(rawInput?: string): string {
-  if (!rawInput) {
-    return 'python3';
-  }
-  let cleaned = rawInput.trim();
-  if (!cleaned) {
-    return 'python3';
-  }
+  let cleaned = (rawInput || '').trim();
 
-  const flagMatch = cleaned.match(/--python(?:=|\s+)([^\s]+)/);
-  if (flagMatch && flagMatch[1]) {
-    cleaned = flagMatch[1].trim();
-  }
+  if (cleaned) {
+    const flagMatch = cleaned.match(/--python(?:=|\s+)([^\s]+)/);
+    if (flagMatch && flagMatch[1]) {
+      cleaned = flagMatch[1].trim();
+    }
 
-  if (cleaned.startsWith('~/')) {
-    cleaned = join(homedir(), cleaned.slice(2));
-  }
+    if (cleaned.startsWith('~/')) {
+      cleaned = join(homedir(), cleaned.slice(2));
+    }
 
-  if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
-    try {
-      const expanded = execFileSync('/bin/sh', ['-c', `echo ${cleaned}`], {
-        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-        encoding: 'utf8',
-        timeout: 3000,
-      }).trim();
-      if (expanded) {
-        cleaned = expanded;
+    if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
+      try {
+        const expanded = execFileSync('/bin/sh', ['-c', `echo ${cleaned}`], {
+          env: { ...process.env, PATH: DEFAULT_ENV_PATH },
+          encoding: 'utf8',
+          timeout: 3000,
+        }).trim();
+        if (expanded) {
+          cleaned = expanded;
+        }
+      } catch {
+        // Fall back to unexpanded string if shell evaluation fails
       }
-    } catch {
-      // Fall back to unexpanded string if shell evaluation fails
+    }
+
+    // If it's not an absolute path (e.g. 'python3' or 'python3.12'), or if the file exists on disk, use it
+    if (!cleaned.startsWith('/') || existsSync(cleaned)) {
+      return cleaned;
     }
   }
 
-  return cleaned;
+  for (const fallback of FALLBACK_PYTHON_PATHS) {
+    if (existsSync(fallback)) {
+      return fallback;
+    }
+  }
+
+  return 'python3';
 }
 
 export class PyAtvClient extends EventEmitter {
@@ -114,6 +135,16 @@ export class PyAtvClient extends EventEmitter {
 
     const scriptPath = join(__dirname, '..', 'scripts', 'pyatv_bridge.py');
     const pythonExec = resolvePythonPath(this.config.pythonPath);
+
+    if (
+      this.config.pythonPath &&
+      this.config.pythonPath.startsWith('/') &&
+      this.config.pythonPath !== pythonExec
+    ) {
+      this.log.warn(
+        `[${this.config.name}] Configured pythonPath '${this.config.pythonPath}' was not found; using '${pythonExec}' instead.`,
+      );
+    }
 
     const args = ['--host', this.config.host];
     if (this.config.companionCredentials) {

@@ -4,52 +4,70 @@ exports.PyAtvClient = void 0;
 exports.resolvePythonPath = resolvePythonPath;
 const node_events_1 = require("node:events");
 const node_child_process_1 = require("node:child_process");
+const node_fs_1 = require("node:fs");
 const node_os_1 = require("node:os");
 const node_path_1 = require("node:path");
 const DEFAULT_ENV_PATH = [
+    '/opt/homebrew/opt/python@3.12/bin',
     '/opt/homebrew/bin',
     '/opt/homebrew/sbin',
+    '/usr/local/opt/python@3.12/bin',
     '/usr/local/bin',
     '/usr/local/sbin',
     '/usr/bin',
     '/bin',
     process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
 ].join(':');
+const FALLBACK_PYTHON_PATHS = [
+    '/opt/homebrew/opt/python@3.12/bin/python3.12',
+    '/usr/local/opt/python@3.12/bin/python3.12',
+    '/opt/homebrew/bin/python3.12',
+    '/usr/local/bin/python3.12',
+    '/opt/homebrew/bin/python3',
+    '/usr/local/bin/python3',
+    '/usr/bin/python3',
+];
 /**
  * Resolves the configured pythonPath (expanding `~` or shell expressions like
- * `$(brew --prefix python@3.12)/bin/python3.12` if present), defaulting to `python3`.
+ * `$(brew --prefix python@3.12)/bin/python3.12` if present). If an absolute path
+ * is configured that does not exist on disk, falls back to an existing Python binary.
  */
 function resolvePythonPath(rawInput) {
-    if (!rawInput) {
-        return 'python3';
-    }
-    let cleaned = rawInput.trim();
-    if (!cleaned) {
-        return 'python3';
-    }
-    const flagMatch = cleaned.match(/--python(?:=|\s+)([^\s]+)/);
-    if (flagMatch && flagMatch[1]) {
-        cleaned = flagMatch[1].trim();
-    }
-    if (cleaned.startsWith('~/')) {
-        cleaned = (0, node_path_1.join)((0, node_os_1.homedir)(), cleaned.slice(2));
-    }
-    if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
-        try {
-            const expanded = (0, node_child_process_1.execFileSync)('/bin/sh', ['-c', `echo ${cleaned}`], {
-                env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-                encoding: 'utf8',
-                timeout: 3000,
-            }).trim();
-            if (expanded) {
-                cleaned = expanded;
+    let cleaned = (rawInput || '').trim();
+    if (cleaned) {
+        const flagMatch = cleaned.match(/--python(?:=|\s+)([^\s]+)/);
+        if (flagMatch && flagMatch[1]) {
+            cleaned = flagMatch[1].trim();
+        }
+        if (cleaned.startsWith('~/')) {
+            cleaned = (0, node_path_1.join)((0, node_os_1.homedir)(), cleaned.slice(2));
+        }
+        if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
+            try {
+                const expanded = (0, node_child_process_1.execFileSync)('/bin/sh', ['-c', `echo ${cleaned}`], {
+                    env: { ...process.env, PATH: DEFAULT_ENV_PATH },
+                    encoding: 'utf8',
+                    timeout: 3000,
+                }).trim();
+                if (expanded) {
+                    cleaned = expanded;
+                }
+            }
+            catch {
+                // Fall back to unexpanded string if shell evaluation fails
             }
         }
-        catch {
-            // Fall back to unexpanded string if shell evaluation fails
+        // If it's not an absolute path (e.g. 'python3' or 'python3.12'), or if the file exists on disk, use it
+        if (!cleaned.startsWith('/') || (0, node_fs_1.existsSync)(cleaned)) {
+            return cleaned;
         }
     }
-    return cleaned;
+    for (const fallback of FALLBACK_PYTHON_PATHS) {
+        if ((0, node_fs_1.existsSync)(fallback)) {
+            return fallback;
+        }
+    }
+    return 'python3';
 }
 class PyAtvClient extends node_events_1.EventEmitter {
     config;
@@ -90,6 +108,11 @@ class PyAtvClient extends node_events_1.EventEmitter {
         }
         const scriptPath = (0, node_path_1.join)(__dirname, '..', 'scripts', 'pyatv_bridge.py');
         const pythonExec = resolvePythonPath(this.config.pythonPath);
+        if (this.config.pythonPath &&
+            this.config.pythonPath.startsWith('/') &&
+            this.config.pythonPath !== pythonExec) {
+            this.log.warn(`[${this.config.name}] Configured pythonPath '${this.config.pythonPath}' was not found; using '${pythonExec}' instead.`);
+        }
         const args = ['--host', this.config.host];
         if (this.config.companionCredentials) {
             args.push('--companion-credentials', this.config.companionCredentials);

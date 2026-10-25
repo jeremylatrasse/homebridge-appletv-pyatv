@@ -52,10 +52,8 @@ const client = new PyAtvClient(
 );
 assert.equal(client.config.host, appleTvHost);
 
-assert.equal(
-  resolvePythonPath('/opt/homebrew/opt/python@3.12/bin/python3.12'),
-  '/opt/homebrew/opt/python@3.12/bin/python3.12',
-);
+assert.equal(resolvePythonPath('python3.12'), 'python3.12');
+assert.equal(resolvePythonPath('/usr/bin/python3'), '/usr/bin/python3');
 
 const target = new TargetForwarder(
   { host: targetHost, stepDb: 1.5, appleTvProfileId: 1 },
