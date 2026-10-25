@@ -1,10 +1,41 @@
 import assert from 'node:assert/strict';
+import { parseArgs } from 'node:util';
 import { PyAtvClient } from './dist/pyatvClient.js';
 import { TargetForwarder } from './dist/targetForwarder.js';
 import { sanitizeHomeKitName } from './dist/platformAccessory.js';
 import { PLUGIN_VERSION } from './dist/settings.js';
 
-console.log(`Testing homebridge-appletv-pyatv v${PLUGIN_VERSION}...`);
+const { values, positionals } = parseArgs({
+  options: {
+    'appletv-host': { type: 'string', short: 'a' },
+    'target-host': { type: 'string', short: 't' },
+    help: { type: 'boolean', short: 'h' },
+  },
+  allowPositionals: true,
+});
+
+if (values.help) {
+  console.log(
+    'Usage: node test-pyatv.mjs [--appletv-host <ip>] [--target-host <ip>] [<appletv-ip> [target-ip]]',
+  );
+  process.exit(0);
+}
+
+const appleTvHost =
+  values['appletv-host'] ||
+  positionals[0] ||
+  process.env.APPLETV_HOST ||
+  '127.0.0.1';
+
+const targetHost =
+  values['target-host'] ||
+  positionals[1] ||
+  process.env.TARGET_HOST ||
+  '127.0.0.1';
+
+console.log(
+  `Testing homebridge-appletv-pyatv v${PLUGIN_VERSION} (Apple TV: ${appleTvHost}, Target Device: ${targetHost})...`,
+);
 
 const noopLogger = {
   info: () => {},
@@ -16,14 +47,16 @@ const noopLogger = {
 };
 
 const client = new PyAtvClient(
-  { name: 'Living Room Apple TV', host: '172.16.1.50' },
+  { name: 'Living Room Apple TV', host: appleTvHost },
   noopLogger,
 );
+assert.equal(client.config.host, appleTvHost);
 
 const target = new TargetForwarder(
-  { host: '172.16.1.66', stepDb: 1.5, appleTvProfileId: 1 },
+  { host: targetHost, stepDb: 1.5, appleTvProfileId: 1 },
   noopLogger,
 );
+assert.equal(target.host, targetHost);
 assert.equal(target.stepDb, 1.5);
 assert.equal(target.appleTvProfileId, 1);
 

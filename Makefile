@@ -15,6 +15,8 @@ TSC := ./node_modules/.bin/tsc
 SRC_DIR := src
 DIST_DIR := dist
 GIT_HOOK := .git/hooks/pre-commit
+APPLETV_HOST ?= 127.0.0.1
+TARGET_HOST ?= 127.0.0.1
 
 .PHONY: all build compile check typecheck watch test clean distclean rebuild install hooks bump release
 
@@ -58,7 +60,7 @@ watch: $(TSC)
 	@$(ENV_SETUP); node $(TSC) -p tsconfig.json --watch
 
 test: build
-	@$(ENV_SETUP); node test-pyatv.mjs
+	@$(ENV_SETUP); node test-pyatv.mjs --appletv-host "$(APPLETV_HOST)" --target-host "$(TARGET_HOST)"
 
 clean:
 	@echo "Cleaning $(DIST_DIR)/..."

@@ -30,7 +30,7 @@
               "title": "Apple TV IP Address",
               "type": "string",
               "format": "hostname",
-              "placeholder": "172.16.1.50"
+              "placeholder": "192.168.1.50"
             },
             "pythonPath": {
               "title": "Python 3 Path",
@@ -57,7 +57,7 @@
             "targetHost": {
               "title": "Target Device IP Address (Direct Volume/Power Target)",
               "type": "string",
-              "placeholder": "172.16.1.66",
+              "placeholder": "192.168.1.60",
               "description": "Optional: Directly forwards Siri Remote Volume Up/Down and source-aware Power On/Off to your target device over TCP."
             },
             "targetPort": {

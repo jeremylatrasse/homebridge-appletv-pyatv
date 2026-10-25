@@ -21,8 +21,8 @@ export declare class TargetForwarder {
     private reconnectTimer;
     private stopped;
     private buffer;
-    private readonly host;
-    private readonly port;
+    readonly host: string;
+    readonly port: number;
     private readonly mac?;
     readonly stepDb: number;
     readonly appleTvProfileId?: number;

@@ -25,8 +25,8 @@ export class TargetForwarder {
   private stopped = false;
   private buffer = '';
 
-  private readonly host: string;
-  private readonly port: number;
+  public readonly host: string;
+  public readonly port: number;
   private readonly mac?: string;
   public readonly stepDb: number;
   public readonly appleTvProfileId?: number;
