@@ -9,6 +9,10 @@ npm-debug.log*
 # TypeScript build cache
 *.tsbuildinfo
 
+# Keep compiled dist/ committed in git
+!dist/
+!dist/**
+
 # OS & Editor metadata
 .DS_Store
 .vscode/

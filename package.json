@@ -1,6 +1,6 @@
 {
   "name": "homebridge-appletv-pyatv",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to external processors like Trinnov Altitude.",
   "license": "Apache-2.0",
   "repository": {
@@ -36,12 +36,13 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "prepare": "if [ -d .git ]; then cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit; fi",
+    "build": "rm -rf dist && tsc",
     "watch": "tsc --watch",
     "check": "tsc --noEmit",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "npm run build && node test-pyatv.mjs",
-    "bump": "npm version patch --no-git-tag-version",
+    "bump": "npm version patch --no-git-tag-version && node -e \"const fs=require('fs'),v=require('./package.json').version,f='src/settings.ts';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace(/FALLBACK_VERSION = '[^']*'/,'FALLBACK_VERSION = \\''+v+'\\''));\"",
     "release": "npm run bump && npm run build && node test-pyatv.mjs",
     "prepublishOnly": "npm run clean && npm run build"
   },

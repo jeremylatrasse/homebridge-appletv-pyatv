@@ -1,0 +1,69 @@
+#!/bin/zsh
+# Git pre-commit hook for homebridge-appletv-pyatv
+# Automatically increments the package patch version, builds the TypeScript
+# sources into dist/, and stages dist/ + package.json for the commit.
+
+set -e
+
+setopt +o nomatch 2>/dev/null || true
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.volta/bin:$HOME/.fnm/current/bin:$HOME/.local/share/fnm/aliases/default/bin:$HOME/.asdf/shims:/opt/local/bin:$PATH"
+for d in $HOME/.nvm/versions/node/*/bin(N) /opt/homebrew/opt/node*/bin(N) /usr/local/opt/node*/bin(N); do
+  [ -d "$d" ] && export PATH="$d:$PATH"
+done
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+wait_for_git_lock() {
+  local retries=50
+  while [ -f ".git/index.lock" ] && [ $retries -gt 0 ]; do
+    sleep 0.1
+    retries=$((retries - 1))
+  done
+}
+
+# 1. Check whether version in package.json was already incremented relative to HEAD
+HEAD_VER=""
+if git rev-parse --verify HEAD >/dev/null 2>&1; then
+  HEAD_VER="$(git show HEAD:package.json 2>/dev/null | node -e '
+    let data = "";
+    process.stdin.on("data", chunk => data += chunk);
+    process.stdin.on("end", () => {
+      try { console.log(JSON.parse(data).version || ""); } catch { console.log(""); }
+    });
+  ')"
+fi
+
+CURRENT_VER="$(node -p "require('./package.json').version")"
+
+if [ -n "$HEAD_VER" ] && [ "$HEAD_VER" = "$CURRENT_VER" ]; then
+  NEW_VER="$(npm version patch --no-git-tag-version)"
+  CURRENT_VER="${NEW_VER#v}"
+  echo "[pre-commit] Incremented version: ${HEAD_VER} -> ${CURRENT_VER}"
+else
+  echo "[pre-commit] Version already updated: ${CURRENT_VER}"
+fi
+
+# 2. Sync fallback version constant in src/settings.ts
+if [ -f "src/settings.ts" ]; then
+  node -e '
+    const fs = require("fs");
+    const ver = process.argv[1];
+    const file = "src/settings.ts";
+    const src = fs.readFileSync(file, "utf8");
+    const updated = src.replace(/FALLBACK_VERSION = '\''[^'\'']*'\''/, `FALLBACK_VERSION = '\''${ver}'\''`);
+    if (updated !== src) {
+      fs.writeFileSync(file, updated, "utf8");
+    }
+  ' "$CURRENT_VER"
+fi
+
+# 3. Clean & build TypeScript into dist/
+echo "[pre-commit] Building TypeScript -> dist/..."
+npm run build
+
+# 4. Stage updated version files and compiled dist/ tree (with retry if IDE holds index.lock)
+wait_for_git_lock
+git add -A package.json package-lock.json src/settings.ts dist/
+
+echo "[pre-commit] Staged dist/ and version v${CURRENT_VER}."

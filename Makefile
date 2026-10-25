@@ -14,8 +14,9 @@ ENV_SETUP := \
 TSC := ./node_modules/.bin/tsc
 SRC_DIR := src
 DIST_DIR := dist
+GIT_HOOK := .git/hooks/pre-commit
 
-.PHONY: all build compile check typecheck watch test clean distclean rebuild install bump release help
+.PHONY: all build compile check typecheck watch test clean distclean rebuild install hooks bump release
 
 all: build
 
@@ -25,11 +26,17 @@ $(TSC):
 		npm install; \
 	fi
 
+hooks:
+	@if [ -d ".git" ] && [ -f "scripts/pre-commit" ]; then \
+		cp scripts/pre-commit $(GIT_HOOK) && chmod +x $(GIT_HOOK); \
+	fi
+
 install:
 	@$(ENV_SETUP); npm install
 
-build: $(TSC)
+build: $(TSC) hooks
 	@echo "Building TypeScript sources..."
+	@rm -rf $(DIST_DIR)
 	@$(ENV_SETUP); node $(TSC) -p tsconfig.json --pretty false
 	@echo "TypeScript build complete -> $(DIST_DIR)/"
 
@@ -37,7 +44,7 @@ compile: build
 
 bump:
 	@$(ENV_SETUP); \
-	NEW_VER=$$(npm version patch --no-git-tag-version); \
+	NEW_VER=$$(npm run -s bump); \
 	echo "Bumped plugin version to $$NEW_VER"
 
 release: bump build test

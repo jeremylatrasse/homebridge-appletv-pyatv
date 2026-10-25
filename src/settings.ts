@@ -4,13 +4,15 @@ import { join } from 'node:path';
 export const PLATFORM_NAME = 'AppleTvPyatv';
 export const PLUGIN_NAME = 'homebridge-appletv-pyatv';
 
+const FALLBACK_VERSION = '1.0.1';
+
 function loadPluginVersion(): string {
   try {
     const pkgPath = join(__dirname, '..', 'package.json');
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
-    return pkg.version || '1.0.0';
+    return pkg.version || FALLBACK_VERSION;
   } catch {
-    return '1.0.0';
+    return FALLBACK_VERSION;
   }
 }
 
