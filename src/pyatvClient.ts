@@ -1,8 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { spawn, execFileSync, ChildProcessWithoutNullStreams } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { Logger } from 'homebridge';
 
 export interface PyAtvClientConfig {
@@ -21,51 +20,38 @@ export interface PyAtvState {
   volume: number | null;
 }
 
-export interface ResolvedPythonRuntime {
-  pythonExec: string;
-  pythonPathEnv?: string;
-  hasPyAtv: boolean;
-}
-
 const DEFAULT_ENV_PATH = [
-  '/opt/pyatv/bin',
-  '/opt/pipx/bin',
   '/opt/homebrew/bin',
   '/opt/homebrew/sbin',
   '/usr/local/bin',
   '/usr/local/sbin',
-  '/home/linuxbrew/.linuxbrew/bin',
   '/usr/bin',
   '/bin',
-  join(homedir(), '.local', 'bin'),
   process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin',
 ].join(':');
 
 /**
- * Normalizes a user-supplied pythonPath string (including `--python ...` flags,
- * `~`, or shell substitutions like `$(brew --prefix python@3.12)/bin/python3.12`).
+ * Resolves the configured pythonPath (expanding `~` or shell expressions like
+ * `$(brew --prefix python@3.12)/bin/python3.12` if present), defaulting to `python3`.
  */
-export function normalizePythonPathInput(rawInput?: string): string | undefined {
+export function resolvePythonPath(rawInput?: string): string {
   if (!rawInput) {
-    return undefined;
+    return 'python3';
   }
   let cleaned = rawInput.trim();
   if (!cleaned) {
-    return undefined;
+    return 'python3';
   }
 
-  // If the user passed a command containing `--python <path>`, extract `<path>`
   const flagMatch = cleaned.match(/--python(?:=|\s+)([^\s]+)/);
   if (flagMatch && flagMatch[1]) {
     cleaned = flagMatch[1].trim();
   }
 
-  // Expand leading `~/`
   if (cleaned.startsWith('~/')) {
     cleaned = join(homedir(), cleaned.slice(2));
   }
 
-  // Expand shell substitutions such as `$(brew --prefix python@3.12)/bin/python3.12` using POSIX /bin/sh
   if (cleaned.includes('$(') || cleaned.includes('`') || cleaned.includes('$')) {
     try {
       const expanded = execFileSync('/bin/sh', ['-c', `echo ${cleaned}`], {
@@ -84,194 +70,11 @@ export function normalizePythonPathInput(rawInput?: string): string | undefined 
   return cleaned;
 }
 
-function safeReaddir(dirPath: string): string[] {
-  try {
-    return existsSync(dirPath) ? readdirSync(dirPath) : [];
-  } catch {
-    return [];
-  }
-}
-
-function listUserHomeDirs(): string[] {
-  const homes = new Set<string>([homedir()]);
-  for (const staticHome of ['/root', '/var/root', '/var/lib/homebridge']) {
-    if (existsSync(staticHome)) {
-      homes.add(staticHome);
-    }
-  }
-  for (const base of ['/Users', '/home']) {
-    for (const entry of safeReaddir(base)) {
-      if (!entry.startsWith('.') && entry !== 'Shared') {
-        homes.add(join(base, entry));
-      }
-    }
-  }
-  return Array.from(homes);
-}
-
-/**
- * Extracts the target Python interpreter from an `atvremote` console script.
- * Handles both standard `#! /path/to/python` shebangs AND pip/distlib multi-line
- * `#!/bin/sh` + `'''exec' "/path with spaces/python" "$0" "$@"` wrappers used on macOS
- * when venvs live in `~/Library/Application Support/pipx/...`.
- */
-export function readShebangPython(scriptFile: string): string | undefined {
-  try {
-    if (!existsSync(scriptFile)) {
-      return undefined;
-    }
-    const lines = readFileSync(scriptFile, 'utf8').split('\n').slice(0, 6);
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      const execMatch = line.match(/exec'?\s+"([^"]+python[^"]*)"/i);
-      if (execMatch && execMatch[1]) {
-        return execMatch[1];
-      }
-    }
-
-    const firstLine = lines[0]?.trim() || '';
-    if (firstLine.startsWith('#!')) {
-      const shebang = firstLine.slice(2).trim();
-      const parts = shebang.split(/\s+/);
-      const candidate = parts[0] === '/usr/bin/env' && parts[1] ? parts[1] : parts[0];
-      if (candidate && basename(candidate).startsWith('python')) {
-        return candidate;
-      }
-    }
-  } catch {
-    // Ignore read errors
-  }
-  return undefined;
-}
-
-function findUserPyAtvSitePackages(userHomes: string[]): string[] {
-  const sitePackages: string[] = [];
-  for (const home of userHomes) {
-    // macOS user site-packages: ~/Library/Python/3.x/lib/python/site-packages
-    const macPyBase = join(home, 'Library', 'Python');
-    for (const ver of safeReaddir(macPyBase).sort().reverse()) {
-      const sp = join(macPyBase, ver, 'lib', 'python', 'site-packages');
-      if (existsSync(join(sp, 'pyatv'))) {
-        sitePackages.push(sp);
-      }
-    }
-    // Linux/XDG user site-packages: ~/.local/lib/python3.x/site-packages
-    const localLib = join(home, '.local', 'lib');
-    for (const pyDir of safeReaddir(localLib).sort().reverse()) {
-      if (pyDir.startsWith('python')) {
-        const sp = join(localLib, pyDir, 'site-packages');
-        if (existsSync(join(sp, 'pyatv'))) {
-          sitePackages.push(sp);
-        }
-      }
-    }
-  }
-  return sitePackages;
-}
-
-function findSystemAndBrewPythons(): string[] {
-  const results: string[] = [];
-  // macOS Homebrew (/opt/homebrew, /usr/local) and Linuxbrew (/home/linuxbrew/.linuxbrew)
-  for (const prefix of ['/opt/homebrew', '/usr/local', '/home/linuxbrew/.linuxbrew']) {
-    const optDir = join(prefix, 'opt');
-    const pyFormulae = safeReaddir(optDir)
-      .filter((name) => /^python@\d+\.\d+$/.test(name))
-      .sort()
-      .reverse();
-
-    for (const formula of pyFormulae) {
-      const ver = formula.split('@')[1];
-      const binDir = join(optDir, formula, 'bin');
-      for (const binName of [`python${ver}`, 'python3', 'python']) {
-        const fullPath = join(binDir, binName);
-        if (existsSync(fullPath)) {
-          results.push(fullPath);
-        }
-      }
-    }
-
-    for (const binName of ['python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3']) {
-      const fullPath = join(prefix, 'bin', binName);
-      if (existsSync(fullPath)) {
-        results.push(fullPath);
-      }
-    }
-  }
-
-  // Standard Linux / macOS /usr/bin Python versions
-  for (const binName of ['python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3']) {
-    const fullPath = join('/usr/bin', binName);
-    if (existsSync(fullPath)) {
-      results.push(fullPath);
-    }
-  }
-
-  return results;
-}
-
-function canImportPyAtv(pythonBin: string, pythonPathEnv?: string): boolean {
-  try {
-    const env: NodeJS.ProcessEnv = { ...process.env, PATH: DEFAULT_ENV_PATH };
-    if (pythonPathEnv) {
-      env.PYTHONPATH = process.env.PYTHONPATH
-        ? `${pythonPathEnv}:${process.env.PYTHONPATH}`
-        : pythonPathEnv;
-    }
-    execFileSync(
-      pythonBin,
-      ['-c', 'import pyatv; from pyatv.const import Protocol, PowerState, DeviceState'],
-      {
-        env,
-        stdio: 'ignore',
-        timeout: 10000,
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isUsablePython3(pythonBin: string): boolean {
-  try {
-    execFileSync(
-      pythonBin,
-      ['-c', 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)'],
-      {
-        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-        stdio: 'ignore',
-        timeout: 5000,
-      },
-    );
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function runCommandAsync(command: string, args: string[]): Promise<boolean> {
-  return new Promise((resolve) => {
-    try {
-      const child = spawn(command, args, {
-        stdio: 'ignore',
-        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-      });
-      child.on('error', () => resolve(false));
-      child.on('close', (code) => resolve(code === 0));
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
 export class PyAtvClient extends EventEmitter {
-  private static sharedInstallPromise: Promise<ResolvedPythonRuntime | null> | null = null;
-
   private proc: ChildProcessWithoutNullStreams | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private stopped = false;
   private stdoutBuffer = '';
-  private cachedRuntime: ResolvedPythonRuntime | null = null;
 
   public readonly state: PyAtvState = {
     connected: false,
@@ -287,278 +90,9 @@ export class PyAtvClient extends EventEmitter {
     super();
   }
 
-  private getManagedVenvCandidates(): string[] {
-    return [
-      join(homedir(), '.homebridge-pyatv-venv'),
-      join(__dirname, '..', '.pyatv-venv'),
-      join(tmpdir(), 'homebridge-pyatv-venv'),
-    ];
-  }
-
-  /**
-   * Automatically discovers the Python interpreter on the system (macOS, Linux,
-   * Raspberry Pi, or Docker) that has `pyatv` installed.
-   */
-  public resolvePythonRuntime(): ResolvedPythonRuntime {
-    if (this.cachedRuntime && this.cachedRuntime.hasPyAtv) {
-      return this.cachedRuntime;
-    }
-
-    const normalizedUserPath = normalizePythonPathInput(this.config.pythonPath);
-    const userHomes = listUserHomeDirs();
-
-    // 1. Collect `atvremote` binary paths to inspect their `#!` or `exec` Python shebangs
-    const atvremotePaths = new Set<string>([
-      '/opt/pyatv/bin/atvremote',
-      '/opt/pipx/bin/atvremote',
-      '/opt/homebrew/bin/atvremote',
-      '/usr/local/bin/atvremote',
-      '/home/linuxbrew/.linuxbrew/bin/atvremote',
-      '/usr/bin/atvremote',
-    ]);
-
-    try {
-      const whichOut = execFileSync('/bin/sh', ['-c', 'command -v atvremote'], {
-        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-        encoding: 'utf8',
-        timeout: 2000,
-      }).trim();
-      if (whichOut) {
-        atvremotePaths.add(whichOut);
-      }
-    } catch {
-      // Ignore if atvremote is not on default PATH
-    }
-
-    for (const home of userHomes) {
-      atvremotePaths.add(join(home, '.local', 'bin', 'atvremote'));
-      const macPyBase = join(home, 'Library', 'Python');
-      for (const ver of safeReaddir(macPyBase).sort().reverse()) {
-        atvremotePaths.add(join(macPyBase, ver, 'bin', 'atvremote'));
-      }
-    }
-
-    const shebangPythons: string[] = [];
-    for (const scriptPath of atvremotePaths) {
-      const shebangPy = readShebangPython(scriptPath);
-      if (shebangPy) {
-        shebangPythons.push(shebangPy);
-      }
-    }
-
-    // 2. Query pipx directly if available
-    const pipxVenvDirs: string[] = [];
-    try {
-      const pipxOut = execFileSync('/bin/sh', ['-c', 'pipx environment --value PIPX_LOCAL_VENVS'], {
-        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
-        encoding: 'utf8',
-        timeout: 3000,
-      }).trim();
-      if (pipxOut) {
-        pipxVenvDirs.push(pipxOut);
-      }
-    } catch {
-      // Ignore if pipx is not installed
-    }
-
-    // 3. Collect pipx, Homebrew Cellar, uv, & dedicated virtualenv Python binaries across system & users
-    const venvPythons: string[] = [];
-    for (const managedVenv of this.getManagedVenvCandidates()) {
-      venvPythons.push(join(managedVenv, 'bin', 'python3'), join(managedVenv, 'bin', 'python'));
-    }
-
-    for (const pipxDir of pipxVenvDirs) {
-      venvPythons.push(
-        join(pipxDir, 'pyatv', 'bin', 'python3'),
-        join(pipxDir, 'pyatv', 'bin', 'python'),
-      );
-    }
-
-    venvPythons.push(
-      '/opt/pyatv/bin/python3',
-      '/opt/pyatv/bin/python',
-      '/opt/pipx/venvs/pyatv/bin/python',
-      '/usr/local/pipx/venvs/pyatv/bin/python',
-      '/var/lib/homebridge/pyatv/bin/python3',
-      '/var/lib/homebridge/pyatv/bin/python',
-      '/opt/homebrew/opt/pyatv/libexec/bin/python3',
-      '/opt/homebrew/opt/pyatv/libexec/bin/python',
-      '/usr/local/opt/pyatv/libexec/bin/python3',
-      '/usr/local/opt/pyatv/libexec/bin/python',
-    );
-
-    for (const cellarPrefix of ['/opt/homebrew/Cellar/pyatv', '/usr/local/Cellar/pyatv']) {
-      for (const ver of safeReaddir(cellarPrefix).sort().reverse()) {
-        venvPythons.push(
-          join(cellarPrefix, ver, 'libexec', 'bin', 'python3'),
-          join(cellarPrefix, ver, 'libexec', 'bin', 'python'),
-        );
-      }
-    }
-
-    for (const home of userHomes) {
-      venvPythons.push(
-        // macOS default pipx location (platformdirs user_data_dir)
-        join(home, 'Library', 'Application Support', 'pipx', 'venvs', 'pyatv', 'bin', 'python3'),
-        join(home, 'Library', 'Application Support', 'pipx', 'venvs', 'pyatv', 'bin', 'python'),
-        // Linux / legacy pipx locations
-        join(home, '.local', 'pipx', 'venvs', 'pyatv', 'bin', 'python3'),
-        join(home, '.local', 'pipx', 'venvs', 'pyatv', 'bin', 'python'),
-        join(home, '.local', 'share', 'pipx', 'venvs', 'pyatv', 'bin', 'python3'),
-        join(home, '.local', 'share', 'pipx', 'venvs', 'pyatv', 'bin', 'python'),
-        // uv tool location
-        join(home, '.local', 'share', 'uv', 'tools', 'pyatv', 'bin', 'python3'),
-        join(home, '.local', 'share', 'uv', 'tools', 'pyatv', 'bin', 'python'),
-        // User dedicated venvs
-        join(home, '.homebridge-pyatv-venv', 'bin', 'python3'),
-        join(home, '.homebridge-pyatv-venv', 'bin', 'python'),
-        join(home, '.pyatv', 'bin', 'python'),
-        join(home, 'pyatv-venv', 'bin', 'python'),
-      );
-    }
-
-    // 4. Collect Homebrew, Linuxbrew, & system Python interpreters
-    const systemPythons = [
-      ...findSystemAndBrewPythons(),
-      ...(normalizedUserPath === 'python3' || !normalizedUserPath ? ['python3'] : []),
-    ];
-
-    const candidates: string[] = [
-      ...(normalizedUserPath && normalizedUserPath !== 'python3' ? [normalizedUserPath] : []),
-      ...shebangPythons,
-      ...venvPythons,
-      ...systemPythons,
-    ];
-
-    const seen = new Set<string>();
-    const uniqueCandidates: string[] = [];
-    for (const candidate of candidates) {
-      if (candidate && !seen.has(candidate)) {
-        seen.add(candidate);
-        uniqueCandidates.push(candidate);
-      }
-    }
-
-    // First pass: check if any candidate can directly `import pyatv`
-    for (const candidate of uniqueCandidates) {
-      if (canImportPyAtv(candidate)) {
-        this.cachedRuntime = { pythonExec: candidate, hasPyAtv: true };
-        return this.cachedRuntime;
-      }
-    }
-
-    // Second pass: if `pyatv` was installed in a user's site-packages (`pip install --user pyatv`),
-    // pair candidate Python interpreters with discovered user site-packages via PYTHONPATH
-    const userSitePackages = findUserPyAtvSitePackages(userHomes);
-    if (userSitePackages.length > 0) {
-      const pythonPathEnv = userSitePackages.join(':');
-      for (const candidate of uniqueCandidates) {
-        if (canImportPyAtv(candidate, pythonPathEnv)) {
-          this.cachedRuntime = { pythonExec: candidate, pythonPathEnv, hasPyAtv: true };
-          return this.cachedRuntime;
-        }
-      }
-    }
-
-    // Third pass: check if `pyatv` is inside a pipx venv site-packages that needs a system/Homebrew Python binary
-    for (const venvPy of venvPythons) {
-      const venvLibDir = join(dirname(dirname(venvPy)), 'lib');
-      for (const pyVerDir of safeReaddir(venvLibDir)) {
-        const sp = join(venvLibDir, pyVerDir, 'site-packages');
-        if (existsSync(join(sp, 'pyatv'))) {
-          for (const candidate of uniqueCandidates) {
-            if (canImportPyAtv(candidate, sp)) {
-              this.cachedRuntime = { pythonExec: candidate, pythonPathEnv: sp, hasPyAtv: true };
-              return this.cachedRuntime;
-            }
-          }
-        }
-      }
-    }
-
-    // No existing Python environment had `pyatv`; pick the best base Python 3 for auto-provisioning
-    for (const candidate of uniqueCandidates) {
-      if (isUsablePython3(candidate)) {
-        return { pythonExec: candidate, hasPyAtv: false };
-      }
-    }
-
-    return { pythonExec: normalizedUserPath || 'python3', hasPyAtv: false };
-  }
-
-  /**
-   * Automatically creates a dedicated virtualenv and installs `pyatv` if no
-   * accessible Python environment on the system currently has `pyatv`.
-   */
-  private async ensurePyAtvInstalled(basePython: string): Promise<ResolvedPythonRuntime | null> {
-    if (PyAtvClient.sharedInstallPromise) {
-      return PyAtvClient.sharedInstallPromise;
-    }
-
-    PyAtvClient.sharedInstallPromise = (async () => {
-      for (const venvDir of this.getManagedVenvCandidates()) {
-        const venvPython = join(venvDir, 'bin', 'python3');
-        if (canImportPyAtv(venvPython)) {
-          return { pythonExec: venvPython, hasPyAtv: true };
-        }
-
-        this.log.info(
-          `[${this.config.name}] pyatv not found in accessible Python paths; provisioning virtualenv at ${venvDir} (using ${basePython})...`,
-        );
-
-        const created = await runCommandAsync(basePython, ['-m', 'venv', venvDir]);
-        if (!created) {
-          continue;
-        }
-
-        this.log.info(`[${this.config.name}] Installing pyatv into ${venvDir} (this takes ~15-30s on first run)...`);
-        const installed = await runCommandAsync(venvPython, [
-          '-m',
-          'pip',
-          'install',
-          '--quiet',
-          '--upgrade',
-          'pip',
-          'pyatv',
-        ]);
-
-        if (installed && canImportPyAtv(venvPython)) {
-          this.log.info(`[${this.config.name}] Successfully installed pyatv in ${venvPython}`);
-          return { pythonExec: venvPython, hasPyAtv: true };
-        }
-      }
-
-      // Fallback if python3-venv is missing on Linux: install with --user
-      this.log.info(`[${this.config.name}] Attempting user-level pip install of pyatv using ${basePython}...`);
-      const userInstalled = await runCommandAsync(basePython, [
-        '-m',
-        'pip',
-        'install',
-        '--quiet',
-        '--user',
-        'pyatv',
-      ]);
-      if (userInstalled && canImportPyAtv(basePython)) {
-        return { pythonExec: basePython, hasPyAtv: true };
-      }
-
-      return null;
-    })();
-
-    try {
-      const result = await PyAtvClient.sharedInstallPromise;
-      if (result) {
-        this.cachedRuntime = result;
-      }
-      return result;
-    } finally {
-      PyAtvClient.sharedInstallPromise = null;
-    }
-  }
-
   public start(): void {
     this.stopped = false;
-    void this.spawnBridge();
+    this.spawnBridge();
   }
 
   public stop(): void {
@@ -573,26 +107,13 @@ export class PyAtvClient extends EventEmitter {
     }
   }
 
-  private async spawnBridge(): Promise<void> {
+  private spawnBridge(): void {
     if (this.stopped) {
       return;
     }
 
     const scriptPath = join(__dirname, '..', 'scripts', 'pyatv_bridge.py');
-    let runtime = this.resolvePythonRuntime();
-
-    if (!runtime.hasPyAtv) {
-      const provisioned = await this.ensurePyAtvInstalled(runtime.pythonExec);
-      if (provisioned) {
-        runtime = provisioned;
-      }
-    }
-
-    if (this.stopped) {
-      return;
-    }
-
-    const { pythonExec, pythonPathEnv } = runtime;
+    const pythonExec = resolvePythonPath(this.config.pythonPath);
 
     const args = ['--host', this.config.host];
     if (this.config.companionCredentials) {
@@ -610,16 +131,9 @@ export class PyAtvClient extends EventEmitter {
     );
 
     try {
-      const env: NodeJS.ProcessEnv = { ...process.env, PATH: DEFAULT_ENV_PATH };
-      if (pythonPathEnv) {
-        env.PYTHONPATH = process.env.PYTHONPATH
-          ? `${pythonPathEnv}:${process.env.PYTHONPATH}`
-          : pythonPathEnv;
-      }
-
       const proc = spawn(pythonExec, [scriptPath, ...args], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env,
+        env: { ...process.env, PATH: DEFAULT_ENV_PATH },
       });
       this.proc = proc;
 
@@ -635,21 +149,15 @@ export class PyAtvClient extends EventEmitter {
       });
 
       proc.on('error', (err: Error) => {
-        this.cachedRuntime = null;
         this.log.error(`[${this.config.name}] Failed to launch python3/pyatv (${pythonExec}): ${err.message}`);
       });
 
       proc.on('close', (code) => {
         this.state.connected = false;
         this.proc = null;
-        if (code !== 0) {
-          this.cachedRuntime = null;
-        }
         if (!this.stopped) {
           this.log.debug(`[${this.config.name}] pyatv bridge exited (code ${code}). Reconnecting in 5s...`);
-          this.reconnectTimer = setTimeout(() => {
-            void this.spawnBridge();
-          }, 5000);
+          this.reconnectTimer = setTimeout(() => this.spawnBridge(), 5000);
         }
       });
     } catch (err: unknown) {
