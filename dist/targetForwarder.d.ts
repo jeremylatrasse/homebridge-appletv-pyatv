@@ -1,5 +1,5 @@
 import { Logger } from 'homebridge';
-export interface TrinnovTargetConfig {
+export interface TargetDeviceConfig {
     host: string;
     port?: number;
     mac?: string;
@@ -9,11 +9,11 @@ export interface TrinnovTargetConfig {
     syncPowerOff?: boolean;
 }
 /**
- * Lightweight Trinnov TCP & Wake-on-LAN forwarder so Apple TV Remote
- * Volume Up/Down, Mute, and Power events control the Trinnov directly
+ * Lightweight TCP & Wake-on-LAN forwarder so Apple TV Remote
+ * Volume Up/Down, Mute, and Power events control the target device directly
  * with zero HomeKit automation lag.
  */
-export declare class TrinnovForwarder {
+export declare class TargetForwarder {
     private readonly log;
     private socket;
     private isConnected;
@@ -28,7 +28,7 @@ export declare class TrinnovForwarder {
     readonly appleTvProfileId?: number;
     readonly syncPowerOn: boolean;
     readonly syncPowerOff: boolean;
-    constructor(config: TrinnovTargetConfig, log: Logger);
+    constructor(config: TargetDeviceConfig, log: Logger);
     start(): void;
     stop(): void;
     private connect;

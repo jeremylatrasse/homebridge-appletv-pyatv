@@ -20,23 +20,23 @@ function sanitizeHomeKitName(rawName, fallback = 'Apple TV') {
  *
  * Exposes:
  * - Power Switch (`Service.Switch`): 2-way synced with Apple TV power state via `pyatv`
- *   so you can group or automate your Projector, Panamax, and Sound power in HomeKit.
+ *   so you can group or automate your target devices in HomeKit.
  * - Optional Playback Motion Sensor (`Service.MotionSensor`): Triggers when Apple TV is actively playing media
- *   (great for automatically dimming theater lights when a movie starts playing).
+ *   (great for automatically triggering lighting scenes when media starts playing).
  */
 class AppleTvPyatvAccessory {
     platform;
     accessory;
     pyatv;
-    trinnov;
+    targetDevice;
     deviceConfig;
     powerSwitchService;
     playbackSensorService;
-    constructor(platform, accessory, pyatv, trinnov, deviceConfig) {
+    constructor(platform, accessory, pyatv, targetDevice, deviceConfig) {
         this.platform = platform;
         this.accessory = accessory;
         this.pyatv = pyatv;
-        this.trinnov = trinnov;
+        this.targetDevice = targetDevice;
         this.deviceConfig = deviceConfig;
         const { Service, Characteristic } = this.platform;
         const cleanName = sanitizeHomeKitName(this.deviceConfig.name, 'Apple TV');
@@ -48,7 +48,7 @@ class AppleTvPyatvAccessory {
             .setCharacteristic(Characteristic.Model, 'Apple TV 4K (pyatv)')
             .setCharacteristic(Characteristic.SerialNumber, `ATV-${this.deviceConfig.host}`)
             .setCharacteristic(Characteristic.FirmwareRevision, settings_1.PLUGIN_VERSION);
-        // 2. Primary Power Switch (for grouping & automating Projector + Theater Power in HomeKit)
+        // 2. Primary Power Switch (for grouping & automating target device power in HomeKit)
         const powerSubtype = 'appletv-power';
         const powerName = sanitizeHomeKitName(`${cleanName} Power`, 'Apple TV Power');
         let powerSvc = this.accessory.getServiceById(Service.Switch, powerSubtype);
@@ -75,16 +75,16 @@ class AppleTvPyatvAccessory {
             const targetOn = Boolean(value);
             this.platform.log.info(`[${cleanName}] HomeKit Switch set Apple TV Power -> ${targetOn ? 'ON' : 'OFF'}`);
             this.pyatv.setPower(targetOn);
-            if (this.trinnov) {
+            if (this.targetDevice) {
                 if (targetOn) {
-                    await this.trinnov.handleAppleTvPowerOn();
+                    await this.targetDevice.handleAppleTvPowerOn();
                 }
                 else {
-                    this.trinnov.handleAppleTvPowerOff();
+                    this.targetDevice.handleAppleTvPowerOff();
                 }
             }
         });
-        // 3. Optional Playback Sensor (for Theater lighting scenes on Play / Pause)
+        // 3. Optional Playback Sensor (for lighting scenes on Play / Pause)
         const playbackSubtype = 'appletv-playback';
         if (this.deviceConfig.exposePlaybackSensor) {
             const playName = sanitizeHomeKitName(`${cleanName} Playing`, 'Apple TV Playing');
@@ -122,22 +122,22 @@ class AppleTvPyatvAccessory {
         const { Characteristic } = this.platform;
         this.pyatv.on('powerChange', async (power) => {
             this.powerSwitchService.updateCharacteristic(Characteristic.On, power);
-            if (this.trinnov) {
+            if (this.targetDevice) {
                 if (power) {
-                    await this.trinnov.handleAppleTvPowerOn();
+                    await this.targetDevice.handleAppleTvPowerOn();
                 }
                 else {
-                    this.trinnov.handleAppleTvPowerOff();
+                    this.targetDevice.handleAppleTvPowerOff();
                 }
             }
         });
         this.pyatv.on('volumeStep', (direction) => {
-            if (this.trinnov) {
+            if (this.targetDevice) {
                 if (direction === 'up') {
-                    this.trinnov.stepVolumeUp();
+                    this.targetDevice.stepVolumeUp();
                 }
                 else {
-                    this.trinnov.stepVolumeDown();
+                    this.targetDevice.stepVolumeDown();
                 }
             }
         });

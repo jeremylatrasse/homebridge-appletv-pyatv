@@ -1,7 +1,7 @@
 import { PlatformAccessory } from 'homebridge';
 import { AppleTvPyatvPlatform } from './platform';
 import { PyAtvClient } from './pyatvClient';
-import { TrinnovForwarder } from './trinnovForwarder';
+import { TargetForwarder } from './targetForwarder';
 export interface AppleTvDeviceConfig {
     name: string;
     host: string;
@@ -10,13 +10,13 @@ export interface AppleTvDeviceConfig {
     airplayCredentials?: string;
     mrpCredentials?: string;
     exposePlaybackSensor?: boolean;
-    trinnovHost?: string;
-    trinnovPort?: number;
-    trinnovMac?: string;
-    trinnovStepDb?: number;
-    trinnovAppleTvProfileId?: number;
-    trinnovSyncPowerOn?: boolean;
-    trinnovSyncPowerOff?: boolean;
+    targetHost?: string;
+    targetPort?: number;
+    targetMac?: string;
+    targetStepDb?: number;
+    targetAppleTvProfileId?: number;
+    targetSyncPowerOn?: boolean;
+    targetSyncPowerOff?: boolean;
 }
 export declare function sanitizeHomeKitName(rawName: string, fallback?: string): string;
 /**
@@ -25,18 +25,18 @@ export declare function sanitizeHomeKitName(rawName: string, fallback?: string):
  *
  * Exposes:
  * - Power Switch (`Service.Switch`): 2-way synced with Apple TV power state via `pyatv`
- *   so you can group or automate your Projector, Panamax, and Sound power in HomeKit.
+ *   so you can group or automate your target devices in HomeKit.
  * - Optional Playback Motion Sensor (`Service.MotionSensor`): Triggers when Apple TV is actively playing media
- *   (great for automatically dimming theater lights when a movie starts playing).
+ *   (great for automatically triggering lighting scenes when media starts playing).
  */
 export declare class AppleTvPyatvAccessory {
     private readonly platform;
     private readonly accessory;
     private readonly pyatv;
-    private readonly trinnov;
+    private readonly targetDevice;
     private readonly deviceConfig;
     private powerSwitchService;
     private playbackSensorService?;
-    constructor(platform: AppleTvPyatvPlatform, accessory: PlatformAccessory, pyatv: PyAtvClient, trinnov: TrinnovForwarder | null, deviceConfig: AppleTvDeviceConfig);
+    constructor(platform: AppleTvPyatvPlatform, accessory: PlatformAccessory, pyatv: PyAtvClient, targetDevice: TargetForwarder | null, deviceConfig: AppleTvDeviceConfig);
     private subscribeEvents;
 }

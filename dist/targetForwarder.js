@@ -33,15 +33,15 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TrinnovForwarder = void 0;
+exports.TargetForwarder = void 0;
 const net = __importStar(require("node:net"));
 const dgram = __importStar(require("node:dgram"));
 /**
- * Lightweight Trinnov TCP & Wake-on-LAN forwarder so Apple TV Remote
- * Volume Up/Down, Mute, and Power events control the Trinnov directly
+ * Lightweight TCP & Wake-on-LAN forwarder so Apple TV Remote
+ * Volume Up/Down, Mute, and Power events control the target device directly
  * with zero HomeKit automation lag.
  */
-class TrinnovForwarder {
+class TargetForwarder {
     log;
     socket = null;
     isConnected = false;
@@ -90,7 +90,7 @@ class TrinnovForwarder {
         socket.setKeepAlive(true, 10000);
         socket.on('connect', () => {
             this.isConnected = true;
-            this.log.info(`[TrinnovForwarder] Connected to Trinnov at ${this.host}:${this.port}`);
+            this.log.info(`[TargetForwarder] Connected to target device at ${this.host}:${this.port}`);
             this.sendRaw('id HomebridgeAppleTV');
             this.sendRaw('send_profile');
         });
@@ -104,7 +104,7 @@ class TrinnovForwarder {
             }
         });
         socket.on('error', () => {
-            // Quietly handle when Trinnov is in standby
+            // Quietly handle when target device is in standby
         });
         socket.on('close', () => {
             this.isConnected = false;
@@ -127,15 +127,15 @@ class TrinnovForwarder {
         }
     }
     stepVolumeUp() {
-        this.log.info(`[TrinnovForwarder] Volume UP (+${this.stepDb} dB)`);
+        this.log.info(`[TargetForwarder] Volume UP (+${this.stepDb} dB)`);
         this.sendRaw(`dvolume ${this.stepDb}`);
     }
     stepVolumeDown() {
-        this.log.info(`[TrinnovForwarder] Volume DOWN (-${this.stepDb} dB)`);
+        this.log.info(`[TargetForwarder] Volume DOWN (-${this.stepDb} dB)`);
         this.sendRaw(`dvolume -${this.stepDb}`);
     }
     toggleMute() {
-        this.log.info('[TrinnovForwarder] Toggle Mute');
+        this.log.info('[TargetForwarder] Toggle Mute');
         this.sendRaw('mute 2');
     }
     async handleAppleTvPowerOn() {
@@ -143,11 +143,11 @@ class TrinnovForwarder {
             return;
         }
         if (!this.isConnected && this.mac) {
-            this.log.info(`[TrinnovForwarder] Waking Trinnov via WoL (${this.mac})`);
+            this.log.info(`[TargetForwarder] Waking target device via WoL (${this.mac})`);
             await this.sendWakeOnLan(this.mac);
         }
         if (typeof this.appleTvProfileId === 'number') {
-            this.log.info(`[TrinnovForwarder] Selecting Apple TV Profile ${this.appleTvProfileId} on Trinnov`);
+            this.log.info(`[TargetForwarder] Selecting Apple TV Profile ${this.appleTvProfileId} on target device`);
             this.sendRaw(`profile ${this.appleTvProfileId}`);
         }
     }
@@ -155,15 +155,15 @@ class TrinnovForwarder {
         if (!this.syncPowerOff) {
             return;
         }
-        // Source-aware guard: if appleTvProfileId is configured and the Trinnov is currently on a DIFFERENT profile
-        // (e.g. listening to Roon or watching Kaleidescape), do not shut off the Trinnov when Apple TV idle-sleeps!
+        // Source-aware guard: if appleTvProfileId is configured and the target device is currently on a DIFFERENT profile/input,
+        // do not shut off the target device when Apple TV idle-sleeps!
         if (typeof this.appleTvProfileId === 'number' &&
             this.currentProfileId !== null &&
             this.currentProfileId !== this.appleTvProfileId) {
-            this.log.info(`[TrinnovForwarder] Apple TV slept, but Trinnov is on Profile ${this.currentProfileId} (not Apple TV Profile ${this.appleTvProfileId}). Leaving Trinnov ON.`);
+            this.log.info(`[TargetForwarder] Apple TV slept, but target device is on Profile ${this.currentProfileId} (not Apple TV Profile ${this.appleTvProfileId}). Leaving target device ON.`);
             return;
         }
-        this.log.info('[TrinnovForwarder] Powering OFF Trinnov');
+        this.log.info('[TargetForwarder] Powering OFF target device');
         this.sendRaw('power_off_SECURED_FHZMCH48FE');
         this.sendRaw('power_off');
     }
@@ -194,5 +194,5 @@ class TrinnovForwarder {
         });
     }
 }
-exports.TrinnovForwarder = TrinnovForwarder;
-//# sourceMappingURL=trinnovForwarder.js.map
+exports.TargetForwarder = TargetForwarder;
+//# sourceMappingURL=targetForwarder.js.map

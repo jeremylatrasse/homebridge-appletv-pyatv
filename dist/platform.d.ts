@@ -7,7 +7,7 @@ export declare class AppleTvPyatvPlatform implements DynamicPlatformPlugin {
     readonly Characteristic: typeof Characteristic;
     readonly accessories: PlatformAccessory[];
     private readonly pyatvClients;
-    private readonly trinnovForwarders;
+    private readonly targetForwarders;
     constructor(log: Logger, config: PlatformConfig, api: API);
     configureAccessory(accessory: PlatformAccessory): void;
     discoverDevices(): void;

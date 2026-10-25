@@ -1,7 +1,7 @@
 import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
 import { AppleTvPyatvPlatform } from './platform';
 import { PyAtvClient } from './pyatvClient';
-import { TrinnovForwarder } from './trinnovForwarder';
+import { TargetForwarder } from './targetForwarder';
 import { PLUGIN_VERSION } from './settings';
 
 export interface AppleTvDeviceConfig {
@@ -12,13 +12,13 @@ export interface AppleTvDeviceConfig {
   airplayCredentials?: string;
   mrpCredentials?: string;
   exposePlaybackSensor?: boolean;
-  trinnovHost?: string;
-  trinnovPort?: number;
-  trinnovMac?: string;
-  trinnovStepDb?: number;
-  trinnovAppleTvProfileId?: number;
-  trinnovSyncPowerOn?: boolean;
-  trinnovSyncPowerOff?: boolean;
+  targetHost?: string;
+  targetPort?: number;
+  targetMac?: string;
+  targetStepDb?: number;
+  targetAppleTvProfileId?: number;
+  targetSyncPowerOn?: boolean;
+  targetSyncPowerOff?: boolean;
 }
 
 export function sanitizeHomeKitName(rawName: string, fallback = 'Apple TV'): string {
@@ -40,9 +40,9 @@ export function sanitizeHomeKitName(rawName: string, fallback = 'Apple TV'): str
  *
  * Exposes:
  * - Power Switch (`Service.Switch`): 2-way synced with Apple TV power state via `pyatv`
- *   so you can group or automate your Projector, Panamax, and Sound power in HomeKit.
+ *   so you can group or automate your target devices in HomeKit.
  * - Optional Playback Motion Sensor (`Service.MotionSensor`): Triggers when Apple TV is actively playing media
- *   (great for automatically dimming theater lights when a movie starts playing).
+ *   (great for automatically triggering lighting scenes when media starts playing).
  */
 export class AppleTvPyatvAccessory {
   private powerSwitchService: Service;
@@ -52,7 +52,7 @@ export class AppleTvPyatvAccessory {
     private readonly platform: AppleTvPyatvPlatform,
     private readonly accessory: PlatformAccessory,
     private readonly pyatv: PyAtvClient,
-    private readonly trinnov: TrinnovForwarder | null,
+    private readonly targetDevice: TargetForwarder | null,
     private readonly deviceConfig: AppleTvDeviceConfig,
   ) {
     const { Service, Characteristic } = this.platform;
@@ -67,7 +67,7 @@ export class AppleTvPyatvAccessory {
       .setCharacteristic(Characteristic.SerialNumber, `ATV-${this.deviceConfig.host}`)
       .setCharacteristic(Characteristic.FirmwareRevision, PLUGIN_VERSION);
 
-    // 2. Primary Power Switch (for grouping & automating Projector + Theater Power in HomeKit)
+    // 2. Primary Power Switch (for grouping & automating target device power in HomeKit)
     const powerSubtype = 'appletv-power';
     const powerName = sanitizeHomeKitName(`${cleanName} Power`, 'Apple TV Power');
 
@@ -95,16 +95,16 @@ export class AppleTvPyatvAccessory {
         const targetOn = Boolean(value);
         this.platform.log.info(`[${cleanName}] HomeKit Switch set Apple TV Power -> ${targetOn ? 'ON' : 'OFF'}`);
         this.pyatv.setPower(targetOn);
-        if (this.trinnov) {
+        if (this.targetDevice) {
           if (targetOn) {
-            await this.trinnov.handleAppleTvPowerOn();
+            await this.targetDevice.handleAppleTvPowerOn();
           } else {
-            this.trinnov.handleAppleTvPowerOff();
+            this.targetDevice.handleAppleTvPowerOff();
           }
         }
       });
 
-    // 3. Optional Playback Sensor (for Theater lighting scenes on Play / Pause)
+    // 3. Optional Playback Sensor (for lighting scenes on Play / Pause)
     const playbackSubtype = 'appletv-playback';
     if (this.deviceConfig.exposePlaybackSensor) {
       const playName = sanitizeHomeKitName(`${cleanName} Playing`, 'Apple TV Playing');
@@ -144,21 +144,21 @@ export class AppleTvPyatvAccessory {
 
     this.pyatv.on('powerChange', async (power: boolean) => {
       this.powerSwitchService.updateCharacteristic(Characteristic.On, power);
-      if (this.trinnov) {
+      if (this.targetDevice) {
         if (power) {
-          await this.trinnov.handleAppleTvPowerOn();
+          await this.targetDevice.handleAppleTvPowerOn();
         } else {
-          this.trinnov.handleAppleTvPowerOff();
+          this.targetDevice.handleAppleTvPowerOff();
         }
       }
     });
 
     this.pyatv.on('volumeStep', (direction: 'up' | 'down') => {
-      if (this.trinnov) {
+      if (this.targetDevice) {
         if (direction === 'up') {
-          this.trinnov.stepVolumeUp();
+          this.targetDevice.stepVolumeUp();
         } else {
-          this.trinnov.stepVolumeDown();
+          this.targetDevice.stepVolumeDown();
         }
       }
     });

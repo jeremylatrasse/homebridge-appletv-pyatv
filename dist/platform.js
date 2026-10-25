@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AppleTvPyatvPlatform = void 0;
 const settings_1 = require("./settings");
 const pyatvClient_1 = require("./pyatvClient");
-const trinnovForwarder_1 = require("./trinnovForwarder");
+const targetForwarder_1 = require("./targetForwarder");
 const platformAccessory_1 = require("./platformAccessory");
 class AppleTvPyatvPlatform {
     log;
@@ -13,7 +13,7 @@ class AppleTvPyatvPlatform {
     Characteristic;
     accessories = [];
     pyatvClients = [];
-    trinnovForwarders = [];
+    targetForwarders = [];
     constructor(log, config, api) {
         this.log = log;
         this.config = config;
@@ -28,7 +28,7 @@ class AppleTvPyatvPlatform {
             for (const client of this.pyatvClients) {
                 client.stop();
             }
-            for (const forwarder of this.trinnovForwarders) {
+            for (const forwarder of this.targetForwarders) {
                 forwarder.stop();
             }
         });
@@ -42,20 +42,20 @@ class AppleTvPyatvPlatform {
         const devices = [...rawDevices];
         if (devices.length === 0 && typeof this.config.host === 'string' && this.config.host.trim()) {
             devices.push({
-                name: this.config.name || 'Theater Apple TV',
+                name: this.config.name || 'Apple TV',
                 host: this.config.host.trim(),
                 pythonPath: this.config.pythonPath,
                 companionCredentials: this.config.companionCredentials,
                 airplayCredentials: this.config.airplayCredentials,
                 mrpCredentials: this.config.mrpCredentials,
                 exposePlaybackSensor: this.config.exposePlaybackSensor,
-                trinnovHost: this.config.trinnovHost,
-                trinnovPort: this.config.trinnovPort,
-                trinnovMac: this.config.trinnovMac,
-                trinnovStepDb: this.config.trinnovStepDb,
-                trinnovAppleTvProfileId: this.config.trinnovAppleTvProfileId,
-                trinnovSyncPowerOn: this.config.trinnovSyncPowerOn,
-                trinnovSyncPowerOff: this.config.trinnovSyncPowerOff,
+                targetHost: this.config.targetHost,
+                targetPort: this.config.targetPort,
+                targetMac: this.config.targetMac,
+                targetStepDb: this.config.targetStepDb,
+                targetAppleTvProfileId: this.config.targetAppleTvProfileId,
+                targetSyncPowerOn: this.config.targetSyncPowerOn,
+                targetSyncPowerOff: this.config.targetSyncPowerOff,
             });
         }
         if (devices.length === 0) {
@@ -68,7 +68,7 @@ class AppleTvPyatvPlatform {
                 this.log.warn(`Device #${index + 1} is missing IP / host. Skipping.`);
                 continue;
             }
-            const deviceName = deviceConfig.name?.trim() || 'Theater Apple TV';
+            const deviceName = deviceConfig.name?.trim() || 'Apple TV';
             const uuid = this.api.hap.uuid.generate(`appletv-pyatv:${deviceConfig.host}`);
             activeUuids.add(uuid);
             const pyatvClient = new pyatvClient_1.PyAtvClient({
@@ -81,24 +81,24 @@ class AppleTvPyatvPlatform {
             }, this.log);
             this.pyatvClients.push(pyatvClient);
             pyatvClient.start();
-            let trinnovForwarder = null;
-            if (deviceConfig.trinnovHost && deviceConfig.trinnovHost.trim()) {
-                trinnovForwarder = new trinnovForwarder_1.TrinnovForwarder({
-                    host: deviceConfig.trinnovHost.trim(),
-                    port: deviceConfig.trinnovPort,
-                    mac: deviceConfig.trinnovMac,
-                    stepDb: deviceConfig.trinnovStepDb,
-                    appleTvProfileId: deviceConfig.trinnovAppleTvProfileId,
-                    syncPowerOn: deviceConfig.trinnovSyncPowerOn,
-                    syncPowerOff: deviceConfig.trinnovSyncPowerOff,
+            let targetForwarder = null;
+            if (deviceConfig.targetHost && deviceConfig.targetHost.trim()) {
+                targetForwarder = new targetForwarder_1.TargetForwarder({
+                    host: deviceConfig.targetHost.trim(),
+                    port: deviceConfig.targetPort,
+                    mac: deviceConfig.targetMac,
+                    stepDb: deviceConfig.targetStepDb,
+                    appleTvProfileId: deviceConfig.targetAppleTvProfileId,
+                    syncPowerOn: deviceConfig.targetSyncPowerOn,
+                    syncPowerOff: deviceConfig.targetSyncPowerOff,
                 }, this.log);
-                this.trinnovForwarders.push(trinnovForwarder);
-                trinnovForwarder.start();
+                this.targetForwarders.push(targetForwarder);
+                targetForwarder.start();
             }
             const existingAccessory = this.accessories.find((acc) => acc.UUID === uuid);
             if (existingAccessory) {
                 this.log.info(`Restoring cached Apple TV accessory: ${deviceName}`);
-                new platformAccessory_1.AppleTvPyatvAccessory(this, existingAccessory, pyatvClient, trinnovForwarder, {
+                new platformAccessory_1.AppleTvPyatvAccessory(this, existingAccessory, pyatvClient, targetForwarder, {
                     ...deviceConfig,
                     name: deviceName,
                 });
@@ -107,7 +107,7 @@ class AppleTvPyatvPlatform {
             else {
                 this.log.info(`Adding new Apple TV accessory: ${deviceName}`);
                 const accessory = new this.api.platformAccessory(deviceName, uuid);
-                new platformAccessory_1.AppleTvPyatvAccessory(this, accessory, pyatvClient, trinnovForwarder, {
+                new platformAccessory_1.AppleTvPyatvAccessory(this, accessory, pyatvClient, targetForwarder, {
                     ...deviceConfig,
                     name: deviceName,
                 });

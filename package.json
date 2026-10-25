@@ -1,7 +1,7 @@
 {
   "name": "homebridge-appletv-pyatv",
-  "version": "1.0.1",
-  "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to external processors like Trinnov Altitude.",
+  "version": "1.0.2",
+  "description": "Homebridge dynamic platform plugin for Apple TV via pyatv: exposes Apple TV Power & Playback state to HomeKit and bridges Siri Remote Volume/Mute/Power directly to a target device.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -16,7 +16,7 @@
     "apple-tv",
     "appletv",
     "pyatv",
-    "trinnov",
+    "target-device",
     "home-theater",
     "siri-remote",
     "volume",
